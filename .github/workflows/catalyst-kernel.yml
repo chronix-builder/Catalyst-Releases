@@ -1,4 +1,5 @@
 name: Catalyst Kernel Release
+
 on:
   workflow_dispatch:
     inputs:
@@ -30,12 +31,15 @@ on:
         options:
           - "true"
           - "false"
+
 permissions:
   contents: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 150
+
     env:
       ARCH: arm64
       SUBARCH: arm64
@@ -44,6 +48,7 @@ jobs:
       KBUILD_BUILD_HOST: github-actions
       ANYKERNEL_REPO: https://github.com/ChroniX-AOSP/AnyKernel33.git
       CLANG_REPO: https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r547379.git
+
     steps:
       - name: Determine Versioning & Configuration
         id: mode
@@ -55,20 +60,24 @@ jobs:
           echo "name=${{ github.event.inputs.kernel_name }}" >> $GITHUB_OUTPUT
           echo "variant=${VARIANT}" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Install Dependencies
         run: |
           sudo apt update
           sudo apt install -y git zip bc bison flex libssl-dev libelf-dev ccache build-essential gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi curl
+
       - name: Clone Components
         run: |
           git clone --depth=1 -b "${{ steps.mode.outputs.branch }}" "${{ steps.mode.outputs.repo }}" kernel
           git clone --depth=1 "$ANYKERNEL_REPO" AnyKernel3
           git clone --depth=1 "$CLANG_REPO" clang
+
       - name: Setup SukiSU Variant
         if: steps.mode.outputs.variant == 'SukiSU'
         run: |
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+
       - name: Setup Toolchain & Cache
         id: setup
         run: |
@@ -76,12 +85,14 @@ jobs:
           echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> $GITHUB_ENV
           echo "CCACHE_MAXSIZE=5G" >> $GITHUB_ENV
           echo "clang_ver=$(clang/bin/clang --version \vert{} head -n 1)" >> $GITHUB_OUTPUT
+
       - name: Restore Cache
         uses: actions/cache@v4
         with:
           path: .ccache
           key: ${{ runner.os }}-ccache-${{ steps.mode.outputs.branch }}-${{ github.sha }}
           restore-keys: ${{ runner.os }}-ccache-${{ steps.mode.outputs.branch }}
+
       - name: Generate Metadata
         id: meta
         run: |
@@ -96,6 +107,7 @@ jobs:
           fi
           echo "" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Build Kernel
         id: build
         run: |
@@ -110,6 +122,7 @@ jobs:
           END=$(date +%s)
           DIFF=$((END - START))
           echo "duration=$((DIFF / 60))m $((DIFF \% 60))s" >> $GITHUB_OUTPUT
+
       - name: Package & Sign
         id: package
         run: |
@@ -123,6 +136,7 @@ jobs:
           if [ -f kernel/out/arch/arm64/boot/dtb ]; then
             cp kernel/out/arch/arm64/boot/dtb AnyKernel3/
           fi
+
           cd AnyKernel3
           zip -r9 "$ZIP_NAME" ./* -x ".git/*"
           SHA=$(sha256sum "$ZIP_NAME" | awk '{print $1}')
@@ -130,37 +144,17 @@ jobs:
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
           echo "sha=$SHA" >> $GITHUB_OUTPUT
           echo "size=$(du -sh $ZIP_NAME \vert{} cut -f1)" >> $GITHUB_OUTPUT
+
       - name: Push Release
         if: success() && github.event.inputs.create_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.mode.outputs.version }}
           name: "${{ steps.mode.outputs.name }}${{ steps.mode.outputs.version }}"
-          body: |
-            > **Device:** Xiaomi Violet (Redmi Note 7 Pro)
-            ### Build Specifications
-
-| Field | Details |
-| :--- | :--- |
-| **Kernel Name** | `${{ steps.mode.outputs.name }}` |
-| **Repository** | `${{ steps.mode.outputs.repo }}` |
-| **Branch** | `${{ steps.mode.outputs.branch }}` |
-| **Variant** | `${{ steps.mode.outputs.variant }}` |
-| **Commit** | `${{ steps.meta.outputs.commit }}` |
-| **Toolchain** | `${{ steps.setup.outputs.clang_ver }}` |
-| **Build Time** | `${{ steps.build.outputs.duration }}` |
-| **File Size** | `${{ steps.package.outputs.size }}` |
-
-            ### SHA-256 Checksum
-            ```text
-            ${{ steps.package.outputs.sha }}
-            ```
-            <details>
-            <summary><b>View Commit Changelog</b></summary>
-            ${{ steps.meta.outputs.changelog }}
-            </details>
+          body: "> **Device:** Xiaomi Violet (Redmi Note 7 Pro)\n\n### Build Specifications\n- **Kernel Name:** `${{ steps.mode.outputs.name }}`\n- **Repository:** `${{ steps.mode.outputs.repo }}`\n- **Branch:** `${{ steps.mode.outputs.branch }}`\n- **Variant:** `${{ steps.mode.outputs.variant }}`\n- **Commit:** `${{ steps.meta.outputs.commit }}`\n- **Toolchain:** `${{ steps.setup.outputs.clang_ver }}`\n- **Build Time:** `${{ steps.build.outputs.duration }}`\n- **File Size:** `${{ steps.package.outputs.size }}`\n\n### SHA-256 Checksum\n```text\n${{ steps.package.outputs.sha }}\n```\n\n<details>\n<summary><b>View Commit Changelog</b></summary>\n\n${{ steps.meta.outputs.changelog }}\n\n</details>"
           files: |
             AnyKernel3/${{ steps.package.outputs.zip_name }}
             AnyKernel3/*.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
