@@ -1,9 +1,6 @@
 Name: Catalyst Kernel Release
-on:
-  push:
-    tags:
-      - "v*"
-      - "R*"
+
+on: 
   workflow_dispatch:
     inputs:
       kernel_name:
