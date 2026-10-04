@@ -36,7 +36,7 @@ jobs:
     env:
       ARCH: arm64
       SUBARCH: arm64
-      DEFCONFIG: vendor/violet-perf_defconfig
+      DEFCONFIG: vendor/sdmsteppe-perf_defconfig
       KBUILD_BUILD_USER: Chronix
       KBUILD_BUILD_HOST: github-actions
       KERNEL_REPO: https://github.com/CosmicCoreX/kernel_xiaomi_violet.git
