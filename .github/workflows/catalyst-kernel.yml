@@ -1,4 +1,4 @@
-Name: Catalyst Kernel Release
+name: Catalyst Kernel Release
 
 on: 
   workflow_dispatch:
