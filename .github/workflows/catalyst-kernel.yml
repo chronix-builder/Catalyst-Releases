@@ -91,13 +91,6 @@ jobs:
           echo "CCACHE_MAXSIZE=5G" >> $GITHUB_ENV
           echo "clang_ver=$(clang/bin/clang --version | head -n 1)" >> $GITHUB_OUTPUT
 
-      - name: Restore Cache
-        uses: actions/cache@v4
-        with:
-          path: .ccache
-          key: ${{ runner.os }}-ccache-${{ steps.mode.outputs.branch }}-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-ccache-${{ steps.mode.outputs.branch }}
-
       - name: Generate Metadata
         id: meta
         run: |
