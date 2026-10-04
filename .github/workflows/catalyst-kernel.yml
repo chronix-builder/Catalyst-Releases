@@ -1,16 +1,12 @@
-name: Catalyst Kernel Release
+Name: Catalyst Kernel Release
 
 on:
-  push:
-    tags:
-      - "v*"
-      - "R*"
   workflow_dispatch:
     inputs:
       kernel_branch:
         description: "Kernel branch to build"
         required: true
-        default: "16"
+        default: "lineage-23.2"
       build_variant:
         description: "Select Build Variant"
         required: true
@@ -43,7 +39,7 @@ jobs:
       DEFCONFIG: vendor/violet-perf_defconfig
       KBUILD_BUILD_USER: Chronix
       KBUILD_BUILD_HOST: github-actions
-      KERNEL_REPO: https://github.com/chronix-cave/kernel_xiaomi_violet.git
+      KERNEL_REPO: https://github.com/CosmicCoreX/kernel_xiaomi_violet.git
       ANYKERNEL_REPO: https://github.com/ChroniX-AOSP/AnyKernel33.git
       CLANG_REPO: https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r547379.git
       KERNEL_NAME: Catalyst-r1-violet
@@ -56,11 +52,13 @@ jobs:
             VERSION="${GITHUB_REF#refs/tags/}"
             echo "is_tag=true" >> $GITHUB_OUTPUT
             echo "branch=16" >> $GITHUB_OUTPUT
+            echo "variant=Standard" >> $GITHUB_OUTPUT
           else
             VARIANT="${{ github.event.inputs.build_variant }}"
             VERSION="${{ github.event.inputs.kernel_branch }}-${VARIANT}-$(date +%Y%m%d-%H%M)"
             echo "is_tag=false" >> $GITHUB_OUTPUT
             echo "branch=${{ github.event.inputs.kernel_branch }}" >> $GITHUB_OUTPUT
+            echo "variant=${VARIANT}" >> $GITHUB_OUTPUT
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
@@ -75,13 +73,23 @@ jobs:
           git clone --depth=1 "$ANYKERNEL_REPO" AnyKernel3
           git clone --depth=1 "$CLANG_REPO" clang
 
+      - name: Setup KernelSU / KernelSU-Next
+        if: steps.mode.outputs.variant != 'Standard'
+        run: |
+          cd kernel
+          if [ "${{ steps.mode.outputs.variant }}" = "KSU" ]; then
+            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          elif [ "${{ steps.mode.outputs.variant }}" = "KSU-nxt" ]; then
+            curl -LSs "https://raw.githubusercontent.com/rifs2000/KernelSU-Next/next/kernel/setup.sh" | bash -next
+          fi
+
       - name: Setup Toolchain & Cache
         id: setup
         run: |
           echo "$GITHUB_WORKSPACE/clang/bin" >> $GITHUB_PATH
           echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> $GITHUB_ENV
           echo "CCACHE_MAXSIZE=5G" >> $GITHUB_ENV
-          echo "clang_ver=$(clang/bin/clang --version | head -n 1)" >> $GITHUB_OUTPUT
+          echo "clang_ver=$(clang/bin/clang --version \vert{} head -n 1)" >> $GITHUB_OUTPUT
 
       - name: Restore Cache
         uses: actions/cache@v4
@@ -100,7 +108,7 @@ jobs:
           if [ -z "$PREV_TAG" ]; then
             git log --oneline -n 10 --no-merges --pretty=format:"• %s" >> $GITHUB_OUTPUT
           else
-            git log ${PREV_TAG}..HEAD --oneline --no-merges --pretty=format:"• %s" >> $GITHUB_OUTPUT
+            git log ${PREV_TAG}..HEAD --oneline --no-merges --pretty=format:"• \%s" >> $GITHUB_OUTPUT
           fi
           echo -e "\nEOF" >> $GITHUB_OUTPUT
 
@@ -117,20 +125,30 @@ jobs:
           
           END=$(date +%s)
           DIFF=$((END - START))
-          echo "duration=$((DIFF / 60))m $((DIFF % 60))s" >> $GITHUB_OUTPUT
+          echo "duration=$((DIFF / 60))m $((DIFF \% 60))s" >> $GITHUB_OUTPUT
 
       - name: Package & Sign
         id: package
         run: |
           ZIP_NAME="${{ env.KERNEL_NAME }}-${{ steps.mode.outputs.version }}.zip"
+          
+          # Copy compiled output to AnyKernel3 directory
           cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
+          if [ -f kernel/out/arch/arm64/boot/dtbo.img ]; then
+            cp kernel/out/arch/arm64/boot/dtbo.img AnyKernel3/
+          fi
+
+          # Zip inside AnyKernel3 and place release artifact in root
           cd AnyKernel3
-          zip -r9 "$ZIP_NAME" ./* -x ".git/*"
+          zip -r9 "../$ZIP_NAME" ./* -x ".git/*"
+          cd ..
+          
           SHA=$(sha256sum "$ZIP_NAME" | awk '{print $1}')
           echo "$SHA" > "$ZIP_NAME.sha256"
+          
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
           echo "sha=$SHA" >> $GITHUB_OUTPUT
-          echo "size=$(du -sh $ZIP_NAME | cut -f1)" >> $GITHUB_OUTPUT
+          echo "size=$(du -sh $ZIP_NAME \vert{} cut -f1)" >> $GITHUB_OUTPUT
 
       - name: Push Release
         if: success() && (steps.mode.outputs.is_tag == 'true' || github.event.inputs.create_release == 'true')
@@ -144,8 +162,7 @@ jobs:
             - **Toolchain:** `${{ steps.setup.outputs.clang_ver }}`
             - **SHA256:** `${{ steps.package.outputs.sha }}`
           files: |
-            AnyKernel3/${{ steps.package.outputs.zip_name }}
-            AnyKernel3/*.sha256
+            ${{ steps.package.outputs.zip_name }}${{ steps.package.outputs.zip_name }}.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -157,13 +174,12 @@ jobs:
           token: ${{ secrets.TELEGRAM_TOKEN }}
           format: html
           document: |
-            AnyKernel3/${{ steps.package.outputs.zip_name }}
-            AnyKernel3/${{ steps.package.outputs.zip_name }}.sha256
+            ${{ steps.package.outputs.zip_name }}${{ steps.package.outputs.zip_name }}.sha256
           message: |
             <b>🚀 Catalyst Kernel Release</b>
             ───────────────────────
             <b>📱 Device:</b> <code>Xiaomi Violet</code>
-            <b>🧬 Variant:</b> <code>${{ github.event.inputs.build_variant || 'Push' }}</code>
+            <b>🧬 Variant:</b> <code>${{ steps.mode.outputs.variant }}</code>
             <b>🏷 Version:</b> <code>${{ steps.mode.outputs.version }}</code>
             <b>📦 Size:</b> <code>${{ steps.package.outputs.size }}</code>
             <b>🕒 Duration:</b> <code>${{ steps.build.outputs.duration }}</code>
@@ -176,3 +192,4 @@ jobs:
             
             <b>🛡 SHA256:</b>
             <code>${{ steps.package.outputs.sha }}</code>
+            
